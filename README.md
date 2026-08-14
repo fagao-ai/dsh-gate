@@ -2,6 +2,8 @@
 
 Rust authentication gateway in front of a **host-resident** DeepSeek Harness web (`dsh web`). The gateway can run anywhere — a Docker container, a VPS, the same machine — while `dsh web` stays on the host, so the agent keeps full access to the host's toolchain and real project directories.
 
+> 🚀 新用户从这里开始：**[快速接入指南](docs/quickstart.md)**（5 分钟跑通 + 公网接入 + 常见问题）
+
 ```
 公网/局域网 → dsh-gate (认证 + 反代) → dsh web (127.0.0.1:3080, 宿主机)
 ```
