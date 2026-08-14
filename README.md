@@ -37,8 +37,8 @@ Env vars: `AUTH_USER` / `AUTH_PASSWORD` (required), `LISTEN` (default `127.0.0.1
 ```sh
 docker build -t dsh-rs-gateway .
 
-# macOS / Windows (Docker Desktop): reach the host dsh via host.docker.internal
-docker run -d --name dsh-gw -p 8080:8080 \
+# macOS / Windows (Docker Desktop / OrbStack): reach the host dsh via host.docker.internal
+docker run -d --name dsh-gw --restart unless-stopped -p 8080:8080 \
   -e AUTH_USER=hezz -e AUTH_PASSWORD='your-password' \
   -e BACKEND=http://host.docker.internal:3080 \
   dsh-rs-gateway
@@ -48,6 +48,9 @@ docker run -d --name dsh-gw --network host \
   -e AUTH_USER=hezz -e AUTH_PASSWORD='your-password' \
   -e BACKEND=http://127.0.0.1:3080 \
   dsh-rs-gateway
+```
+
+Verified on macOS (OrbStack) with `BACKEND=http://host.docker.internal:3080`: login, SPA, `/api`, loopback-pinned privileged RPC, and WebSocket all work through the container. The `Host`/`Origin` the gateway sends upstream is always rewritten to the loopback form (`127.0.0.1:<port>`) regardless of the connect target, so dsh treats the gateway as local no matter where the container runs.
 ```
 
 ## Public / LAN access

@@ -14,17 +14,24 @@ use crate::AppState;
 
 #[derive(Clone)]
 pub struct ProxyState {
-    pub backend_origin: String,      // e.g. "http://127.0.0.1:3080"
-    pub backend_host: String,        // e.g. "127.0.0.1:3080"
+    pub backend_origin: String,      // connect target, e.g. "http://host.docker.internal:3080"
+    pub rewrite_host: String,        // Host header sent upstream: always the loopback form
+    pub rewrite_origin: String,      // Origin header sent upstream: always the loopback form
     pub client: Client<HttpConnector, Body>,
 }
 
 impl ProxyState {
     pub fn new(backend: &str) -> Self {
         let url: http::Uri = backend.parse().expect("invalid BACKEND url");
-        let host = url.authority().expect("BACKEND needs authority").as_str().to_string();
+        let authority = url.authority().expect("BACKEND needs authority").as_str();
+        // The connect target may be host.docker.internal / a LAN IP, but the
+        // Host dsh sees must look loopback or its /api trust fence and
+        // loopback-pinned privileged RPC answer 403. Reuse the same port.
+        let port = authority.rsplit(':').next().unwrap_or("3080");
+        let rewrite_host = format!("127.0.0.1:{port}");
+        let rewrite_origin = format!("http://{rewrite_host}");
         let client: Client<HttpConnector, Body> = Client::builder(TokioExecutor::new()).build_http();
-        Self { backend_origin: backend.to_string(), backend_host: host, client }
+        Self { backend_origin: backend.to_string(), rewrite_host, rewrite_origin, client }
     }
 }
 
@@ -62,9 +69,9 @@ async fn http_proxy(px: ProxyState, mut req: Request<Body>) -> Response {
         Ok(uri) => *req.uri_mut() = uri,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     }
-    req.headers_mut().insert(header::HOST, px.backend_host.parse().unwrap());
+    req.headers_mut().insert(header::HOST, px.rewrite_host.parse().unwrap());
     if req.headers_mut().contains_key(header::ORIGIN) {
-        req.headers_mut().insert(header::ORIGIN, px.backend_origin.parse().unwrap());
+        req.headers_mut().insert(header::ORIGIN, px.rewrite_origin.parse().unwrap());
     }
     match tokio::time::timeout(Duration::from_secs(15), px.client.request(req)).await {
         Ok(Ok(res)) => {
@@ -103,7 +110,7 @@ async fn http_proxy(px: ProxyState, mut req: Request<Body>) -> Response {
 /// Bidirectional WebSocket pump: client <-> backend. Either direction closing
 /// (or the backend refusing the upgrade) tears the other side down.
 async fn pump_ws(px: ProxyState, client: WebSocket, uri: Uri) {
-    let target = format!("ws://{}{}", px.backend_host, uri.path_and_query().map(|p| p.as_str()).unwrap_or("/"));
+    let target = format!("ws://{}{}", px.rewrite_host, uri.path_and_query().map(|p| p.as_str()).unwrap_or("/"));
     let backend = match tokio_tungstenite::connect_async(&target).await {
         Ok((ws, _)) => ws,
         Err(e) => {

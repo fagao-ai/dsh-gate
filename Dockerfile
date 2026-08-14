@@ -1,9 +1,18 @@
 # Multi-stage: compile in a full Rust image, ship a minimal alpine runtime.
 FROM rust:1.97-alpine AS build
 WORKDIR /build
+# China-friendly crates mirror for the build stage.
+RUN mkdir -p /root/.cargo && printf '%s\n' \
+    '[source.crates-io]' \
+    'replace-with = "rsproxy-sparse"' \
+    '' \
+    '[source.rsproxy-sparse]' \
+    'registry = "sparse+https://rsproxy.cn/index/"' > /root/.cargo/config.toml
+# Fetch dependencies once; this layer only rebuilds when Cargo.toml/lock change.
 COPY Cargo.toml Cargo.lock ./
+RUN cargo fetch
 COPY src/ src/
-RUN cargo build --release
+RUN cargo build --release --offline
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
