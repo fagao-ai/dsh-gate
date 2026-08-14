@@ -1,0 +1,25 @@
+[package]
+name = "dsh-rs-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "Rust auth gateway in front of a host-resident DeepSeek Harness web (dsh web): argon2 login, session, CSRF, rate limit, HTTP + WebSocket reverse proxy"
+license = "MIT"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+tokio-tungstenite = "0.26"
+argon2 = "0.5"
+rand = "0.9"
+rand_core = { version = "0.6", features = ["getrandom"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = "0.3"
