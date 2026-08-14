@@ -1,5 +1,5 @@
 [package]
-name = "dsh-rs-gateway"
+name = "dsh-gate"
 version = "0.1.0"
 edition = "2021"
 description = "Rust auth gateway in front of a host-resident DeepSeek Harness web (dsh web): argon2 login, session, CSRF, rate limit, HTTP + WebSocket reverse proxy"

@@ -23,7 +23,7 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "dsh_rs_gateway=info".into()))
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "dsh_gate=info".into()))
         .init();
 
     let user = env::var("AUTH_USER").unwrap_or_else(|_| fatal("AUTH_USER"));
@@ -44,7 +44,7 @@ async fn main() {
         .with_state(state);
 
     let listener = TcpListener::bind(&listen).await.unwrap_or_else(|e| {
-        eprintln!("[dsh-rs-gateway] cannot bind {listen}: {e}");
+        eprintln!("[dsh-gate] cannot bind {listen}: {e}");
         std::process::exit(1);
     });
     tracing::info!("listening on {listen} -> {backend} (login: /login)");
@@ -52,7 +52,7 @@ async fn main() {
 }
 
 fn fatal(name: &str) -> ! {
-    eprintln!("[dsh-rs-gateway] missing required environment variable {name}");
+    eprintln!("[dsh-gate] missing required environment variable {name}");
     std::process::exit(1);
 }
 

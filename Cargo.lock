@@ -185,7 +185,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dsh-rs-gateway"
+name = "dsh-gate"
 version = "0.1.0"
 dependencies = [
  "argon2",

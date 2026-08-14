@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Recreate the dsh-gw container with new login credentials.
+# Recreate the dsh-gate container with new login credentials.
 # Usage: ./set-password.sh
 set -euo pipefail
 
@@ -12,10 +12,10 @@ if [ -z "$pass" ]; then
   exit 1
 fi
 
-docker rm -f dsh-gw >/dev/null 2>&1 || true
-docker run -d --name dsh-gw --restart unless-stopped -p 8080:8080 \
+docker rm -f dsh-gate >/dev/null 2>&1 || true
+docker run -d --name dsh-gate --restart unless-stopped -p 3081:8080 \
   -e "AUTH_USER=$user" \
   -e "AUTH_PASSWORD=$pass" \
   -e BACKEND=http://host.docker.internal:3080 \
-  dsh-rs-gateway
-echo "dsh-gw recreated — login with $user at https://dsh.hezz.eu.org"
+  dsh-gate
+echo "dsh-gate recreated — login with $user at https://dsh.hezz.eu.org"

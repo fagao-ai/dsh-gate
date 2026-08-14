@@ -8,19 +8,21 @@ RUN mkdir -p /root/.cargo && printf '%s\n' \
     '' \
     '[source.rsproxy-sparse]' \
     'registry = "sparse+https://rsproxy.cn/index/"' > /root/.cargo/config.toml
-# Fetch dependencies once; this layer only rebuilds when Cargo.toml/lock change.
+# Fetch dependencies once; this layer rebuilds when Cargo.toml/lock change.
+# src/ must be present too: newer cargo refuses to parse a manifest with no
+# target during `cargo fetch`.
 COPY Cargo.toml Cargo.lock ./
-RUN cargo fetch
 COPY src/ src/
+RUN cargo fetch
 RUN cargo build --release --offline
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
-COPY --from=build /build/target/release/dsh-rs-gateway /usr/local/bin/dsh-rs-gateway
+COPY --from=build /build/target/release/dsh-gate /usr/local/bin/dsh-gate
 # The gateway must reach the host-resident dsh web. On Docker Desktop
 # (macOS/Windows) use http://host.docker.internal:3080; on Linux prefer
 # --network host so 127.0.0.1:3080 works directly.
 ENV LISTEN=0.0.0.0:8080 \
     BACKEND=http://host.docker.internal:3080
 EXPOSE 8080
-CMD ["dsh-rs-gateway"]
+CMD ["dsh-gate"]

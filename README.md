@@ -1,9 +1,9 @@
-# dsh-rs-gateway
+# dsh-gate
 
 Rust authentication gateway in front of a **host-resident** DeepSeek Harness web (`dsh web`). The gateway can run anywhere — a Docker container, a VPS, the same machine — while `dsh web` stays on the host, so the agent keeps full access to the host's toolchain and real project directories.
 
 ```
-公网/局域网 → dsh-rs-gateway (认证 + 反代) → dsh web (127.0.0.1:3080, 宿主机)
+公网/局域网 → dsh-gate (认证 + 反代) → dsh web (127.0.0.1:3080, 宿主机)
 ```
 
 ## Why
@@ -35,19 +35,20 @@ Env vars: `AUTH_USER` / `AUTH_PASSWORD` (required), `LISTEN` (default `127.0.0.1
 ## Docker (gateway only — dsh stays on the host)
 
 ```sh
-docker build -t dsh-rs-gateway .
+docker build -t dsh-gate .
 
 # macOS / Windows (Docker Desktop / OrbStack): reach the host dsh via host.docker.internal
-docker run -d --name dsh-gw --restart unless-stopped -p 8080:8080 \
+# 把宿主端口 3081 映射到容器 8080（按你的部署调整）
+docker run -d --name dsh-gate --restart unless-stopped -p 3081:8080 \
   -e AUTH_USER=hezz -e AUTH_PASSWORD='your-password' \
   -e BACKEND=http://host.docker.internal:3080 \
-  dsh-rs-gateway
+  dsh-gate
 
 # Linux: use host networking so 127.0.0.1:3080 resolves to the host directly
-docker run -d --name dsh-gw --network host \
+docker run -d --name dsh-gate --network host \
   -e AUTH_USER=hezz -e AUTH_PASSWORD='your-password' \
   -e BACKEND=http://127.0.0.1:3080 \
-  dsh-rs-gateway
+  dsh-gate
 ```
 
 Verified on macOS (OrbStack) with `BACKEND=http://host.docker.internal:3080`: login, SPA, `/api`, loopback-pinned privileged RPC, and WebSocket all work through the container. The `Host`/`Origin` the gateway sends upstream is always rewritten to the loopback form (`127.0.0.1:<port>`) regardless of the connect target, so dsh treats the gateway as local no matter where the container runs.
@@ -63,6 +64,10 @@ Front it with TLS (Cloudflare Tunnel or a reverse proxy) so the login page runs 
 - `src/auth.rs` — login page, argon2 verify, sessions, CSRF, rate limiter
 - `src/proxy.rs` — HTTP reverse proxy + WebSocket pump, Host/Origin rewrite
 - `src/state.rs` — in-memory session/CSRF/rate-limit stores
+- `scripts/repair-session-logs.mjs` — repair dsh session logs corrupted by the
+  harness rc.6 writer bug (breaks `session.list` → empty sidebar). Run
+  `node scripts/repair-session-logs.mjs --dry-run` to preview, drop `--dry-run`
+  to apply (each touched file is backed up as `*.repair-bak`).
 
 ## License
 

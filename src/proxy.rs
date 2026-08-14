@@ -5,16 +5,17 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use futures_util::{SinkExt, StreamExt};
-use http_body_util::BodyExt;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper_util::rt::TokioExecutor;
 use std::time::Duration;
 use tokio_tungstenite::tungstenite;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use crate::AppState;
 
 #[derive(Clone)]
 pub struct ProxyState {
     pub backend_origin: String,      // connect target, e.g. "http://host.docker.internal:3080"
+    pub backend_ws: String,          // WebSocket connect origin, e.g. "ws://host.docker.internal:3080"
     pub rewrite_host: String,        // Host header sent upstream: always the loopback form
     pub rewrite_origin: String,      // Origin header sent upstream: always the loopback form
     pub client: Client<HttpConnector, Body>,
@@ -30,8 +31,14 @@ impl ProxyState {
         let port = authority.rsplit(':').next().unwrap_or("3080");
         let rewrite_host = format!("127.0.0.1:{port}");
         let rewrite_origin = format!("http://{rewrite_host}");
+        // The WebSocket pump connects to the *reachable* backend authority
+        // (host.docker.internal from inside a bridge-network container — the
+        // loopback literal would resolve to the container itself), while still
+        // sending the loopback Host header so dsh's fence accepts the upgrade.
+        let scheme = if url.scheme_str() == Some("https") { "wss" } else { "ws" };
+        let backend_ws = format!("{scheme}://{authority}");
         let client: Client<HttpConnector, Body> = Client::builder(TokioExecutor::new()).build_http();
-        Self { backend_origin: backend.to_string(), rewrite_host, rewrite_origin, client }
+        Self { backend_origin: backend.to_string(), backend_ws, rewrite_host, rewrite_origin, client }
     }
 }
 
@@ -75,26 +82,17 @@ async fn http_proxy(px: ProxyState, mut req: Request<Body>) -> Response {
     }
     match tokio::time::timeout(Duration::from_secs(15), px.client.request(req)).await {
         Ok(Ok(res)) => {
+            // Stream the upstream body straight through instead of buffering it:
+            // the 15s timeout above covers only the response HEADERS (they arrive
+            // immediately for SSE), while a collected body would hang on dsh's
+            // never-ending event streams (/plugins/events) and answer 504 after
+            // the collect window. The browser sees the same framing dsh sent.
             let (mut parts, body) = res.into_parts();
-            match tokio::time::timeout(Duration::from_secs(15), body.collect()).await {
-                Ok(Ok(collected)) => {
-                    let bytes = collected.to_bytes();
-                    tracing::debug!("proxy ok: status={} len={}", parts.status, bytes.len());
-                    // Transfer-encoding/connection belong to the upstream hop; let
-                    // axum frame the response body itself.
-                    parts.headers.remove(header::TRANSFER_ENCODING);
-                    parts.headers.remove(header::CONNECTION);
-                    Response::from_parts(parts, Body::from(bytes))
-                }
-                Ok(Err(e)) => {
-                    tracing::warn!("upstream body error: {e}");
-                    (StatusCode::BAD_GATEWAY, format!("upstream body error: {e}")).into_response()
-                }
-                Err(_) => {
-                    tracing::warn!("upstream body timeout");
-                    StatusCode::GATEWAY_TIMEOUT.into_response()
-                }
-            }
+            // Transfer-encoding/connection belong to the upstream hop; let
+            // axum frame the response body itself (chunked when no length).
+            parts.headers.remove(header::TRANSFER_ENCODING);
+            parts.headers.remove(header::CONNECTION);
+            Response::from_parts(parts, Body::new(body))
         }
         Ok(Err(e)) => {
             tracing::warn!("upstream unavailable: {e}");
@@ -110,8 +108,19 @@ async fn http_proxy(px: ProxyState, mut req: Request<Body>) -> Response {
 /// Bidirectional WebSocket pump: client <-> backend. Either direction closing
 /// (or the backend refusing the upgrade) tears the other side down.
 async fn pump_ws(px: ProxyState, client: WebSocket, uri: Uri) {
-    let target = format!("ws://{}{}", px.rewrite_host, uri.path_and_query().map(|p| p.as_str()).unwrap_or("/"));
-    let backend = match tokio_tungstenite::connect_async(&target).await {
+    // Connect to the *reachable* backend authority (host.docker.internal from
+    // the container), but present the loopback Host so dsh's /api fence and
+    // loopback-pinned privileged channels accept the upgrade.
+    let target = format!("{}{}", px.backend_ws, uri.path_and_query().map(|p| p.as_str()).unwrap_or("/"));
+    let mut request = match IntoClientRequest::into_client_request(target) {
+        Ok(req) => req,
+        Err(e) => {
+            tracing::warn!("ws target invalid: {e}");
+            return;
+        }
+    };
+    request.headers_mut().insert(header::HOST, px.rewrite_host.parse().unwrap());
+    let backend = match tokio_tungstenite::connect_async(request).await {
         Ok((ws, _)) => ws,
         Err(e) => {
             tracing::warn!("ws backend connect failed: {e}");
